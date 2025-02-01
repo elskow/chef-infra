@@ -18,6 +18,22 @@ dev:
 	fi
 	APP_ENV=development	air
 
+.PHONY: docker-dev
+docker-dev:
+	docker-compose -f docker-compose.dev.yaml up --build
+
+.PHONY: docker-dev-down
+docker-dev-down:
+	docker-compose -f docker-compose.dev.yaml down
+
+.PHONY: docker-dev-logs
+docker-dev-logs:
+	docker-compose -f docker-compose.dev.yaml logs -f
+
+.PHONY: docker-clean
+docker-clean:
+	docker-compose -f docker-compose.dev.yaml down -v
+
 .PHONY: build
 build:
 	go build -o bin/app cmd/main.go

@@ -20,6 +20,9 @@ go.work
 tmp/
 .air.toml
 
+# Docker volumes
+postgres-data/
+
 # IDE specific
 .idea/
 .vscode/

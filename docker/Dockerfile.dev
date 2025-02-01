@@ -1,0 +1,29 @@
+FROM golang:1.23-alpine
+
+WORKDIR /app
+
+# Install required packages
+RUN apk add --no-cache \
+    git \
+    make \
+    protoc \
+    protobuf-dev \
+    netcat-openbsd
+
+# Install Air for hot reload
+RUN go install github.com/air-verse/air@latest
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy the rest of the application
+COPY . .
+
+# Expose gRPC port
+EXPOSE 50051
+
+# Run with Air
+CMD ["air"]

@@ -7,6 +7,14 @@ jwt_secret = "s0m3s3cr3tk3y"
 token_expiration = "24h"
 refresh_token_enabled = true
 
+[database]
+host = "postgres"
+port = 5432
+user = "postgres"
+password = "postgres"
+name = "chef_infra"
+ssl_mode = "disable"
+
 [grpc]
 enable_reflection = true
 

@@ -1,0 +1,49 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+    ports:
+      - "50051:50051"
+    environment:
+      - APP_ENV=development
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=chef_infra
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - chef-network
+    command: sh -c "while ! nc -z postgres 5432; do sleep 1; done; air"
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=chef_infra
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chef-network
+
+volumes:
+  postgres-data:
+  go-mod-cache:
+
+networks:
+  chef-network:
+    driver: bridge
