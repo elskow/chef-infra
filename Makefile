@@ -32,6 +32,8 @@ clean:
 
 .PHONY: proto
 proto:
+	@echo "Cleaning previous generated files..."
+	@rm -rf proto/gen/*
 	@echo "Generating proto files..."
 	@for file in $$(find proto -name "*.proto" -not -path "proto/gen/*"); do \
 		dir=$$(basename $$file .proto); \

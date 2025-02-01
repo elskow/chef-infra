@@ -1,39 +1,55 @@
 package server
 
 import (
-	"context"
 	"fmt"
-	"log"
+	"go.uber.org/zap/zapcore"
 	"net"
+	"os"
 
+	"go.uber.org/fx"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
-	pb "github.com/elskow/chef-infra/proto/gen/echo"
+	"github.com/elskow/chef-infra/internal/auth"
+	"github.com/elskow/chef-infra/internal/config"
+	pb "github.com/elskow/chef-infra/proto/gen/auth"
 )
 
 type Server struct {
-	config     *Config
-	grpcServer *grpc.Server
-	pb.UnimplementedGreeterServer
+	config      *config.AppConfig
+	log         *zap.Logger
+	grpcServer  *grpc.Server
+	authHandler *auth.Handler
 }
 
-func NewServer(config *Config) *Server {
+type Params struct {
+	fx.In
+
+	Config      *config.AppConfig
+	Logger      *zap.Logger
+	AuthHandler *auth.Handler
+}
+
+func NewServer(p Params) *Server {
 	opts := []grpc.ServerOption{
-		grpc.MaxRecvMsgSize(config.GRPC.MaxReceiveMessageSize),
-		grpc.MaxSendMsgSize(config.GRPC.MaxSendMessageSize),
+		grpc.MaxRecvMsgSize(p.Config.GRPC.MaxReceiveMessageSize),
+		grpc.MaxSendMsgSize(p.Config.GRPC.MaxSendMessageSize),
 	}
 
 	grpcServer := grpc.NewServer(opts...)
 
 	server := &Server{
-		config:     config,
-		grpcServer: grpcServer,
+		config:      p.Config,
+		log:         p.Logger,
+		grpcServer:  grpcServer,
+		authHandler: p.AuthHandler,
 	}
 
-	pb.RegisterGreeterServer(grpcServer, server)
+	// Register services
+	pb.RegisterAuthServer(grpcServer, p.AuthHandler)
 
-	if config.GRPC.EnableReflection {
+	if p.Config.GRPC.EnableReflection {
 		reflection.Register(grpcServer)
 	}
 
@@ -47,7 +63,11 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
-	log.Printf("gRPC server listening on %s", addr)
+	s.log.Info("Starting gRPC server",
+		zap.String("address", addr),
+		zap.Object("config", serverConfigToField(s.config)),
+	)
+
 	if err := s.grpcServer.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve: %w", err)
 	}
@@ -55,11 +75,17 @@ func (s *Server) Start() error {
 	return nil
 }
 
-func (s *Server) Stop() {
-	s.grpcServer.GracefulStop()
+func serverConfigToField(config *config.AppConfig) zapcore.ObjectMarshaler {
+	return zapcore.ObjectMarshalerFunc(func(enc zapcore.ObjectEncoder) error {
+		enc.AddString("environment", os.Getenv("APP_ENV"))
+		enc.AddBool("reflection_enabled", config.GRPC.EnableReflection)
+		enc.AddInt("max_receive_size", config.GRPC.MaxReceiveMessageSize)
+		enc.AddInt("max_send_size", config.GRPC.MaxSendMessageSize)
+		return nil
+	})
 }
 
-func (s *Server) SayHello(ctx context.Context, in *pb.HelloRequest) (*pb.HelloReply, error) {
-	log.Printf("Received: %v", in.GetName())
-	return &pb.HelloReply{Message: "Hello " + in.GetName()}, nil
+func (s *Server) Stop() {
+	s.log.Info("shutting down gRPC server")
+	s.grpcServer.GracefulStop()
 }
