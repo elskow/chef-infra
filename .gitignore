@@ -1,0 +1,68 @@
+# Generated proto files
+proto/gen/
+
+# Binaries and build outputs
+bin/
+tmp/
+dist/
+
+# Go specific
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# Air hot reload
+tmp/
+.air.toml
+
+# IDE specific
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Test coverage
+coverage.txt
+coverage.html
+
+# Dependencies
+vendor/
+
+# Debug files
+__debug_bin*
+
+# Certificate files
+*.pem
+*.key
+*.crt
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Local configuration
+config.local.yaml
+config.dev.yaml
+
+# Cache directories
+.cache/
