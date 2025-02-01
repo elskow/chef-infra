@@ -1,39 +1,41 @@
 package main
 
 import (
-	"context"
 	"log"
-	"net"
+	"os"
+	"os/signal"
+	"syscall"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/reflection"
-
-	pb "github.com/elskow/chef-infra/proto/gen/echo"
+	"github.com/elskow/chef-infra/internal/server"
 )
 
-type server struct {
-	pb.UnimplementedGreeterServer
-}
-
-func (s *server) SayHello(ctx context.Context, in *pb.HelloRequest) (*pb.HelloReply, error) {
-	log.Printf("Received: %v", in.GetName())
-	return &pb.HelloReply{Message: "Hello " + in.GetName()}, nil
-}
-
 func main() {
-	port := ":50051"
-	lis, err := net.Listen("tcp", port)
+	// Set environment through environment variable
+	env := os.Getenv("APP_ENV")
+	if env == "" {
+		env = server.EnvDevelopment // Default to development
+	}
+
+	log.Printf("Starting server in %s mode", env)
+
+	config, err := server.LoadConfig()
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	s := grpc.NewServer()
-	pb.RegisterGreeterServer(s, &server{})
+	srv := server.NewServer(config)
 
-	reflection.Register(s)
+	// Graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	log.Printf("gRPC server listening on %s", port)
-	if err := s.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
-	}
+	go func() {
+		if err := srv.Start(); err != nil {
+			log.Fatalf("Failed to start server: %v", err)
+		}
+	}()
+
+	<-sigChan
+	log.Println("Shutting down server...")
+	srv.Stop()
 }

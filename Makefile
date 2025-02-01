@@ -1,6 +1,14 @@
 .PHONY: run
 run:
-	go run cmd/main.go
+	APP_ENV=development go run cmd/main.go
+
+.PHONY: run-prod
+run-prod:
+	APP_ENV=production go run cmd/main.go
+
+.PHONY: run-test
+run-test:
+	APP_ENV=testing go run cmd/main.go
 
 .PHONY: dev
 dev:
@@ -8,11 +16,13 @@ dev:
 		echo "Installing air..."; \
 		go install github.com/cosmtrek/air@latest; \
 	fi
-	air
+	APP_ENV=development	air
 
 .PHONY: build
 build:
 	go build -o bin/app cmd/main.go
+	@mkdir -p bin/config
+	@cp config/config.toml bin/config/
 
 .PHONY: clean
 clean:

@@ -1,0 +1,18 @@
+[server]
+host = "0.0.0.0"
+port = "50051"
+
+[grpc]
+enable_reflection = true
+
+[grpc.development]
+max_receive_message_size = 16777216  # 16MB for easier development
+max_send_message_size = 16777216
+
+[grpc.production]
+max_receive_message_size = 4194304   # 4MB for production
+max_send_message_size = 4194304
+
+[grpc.testing]
+max_receive_message_size = 1048576   # 1MB for tests
+max_send_message_size = 1048576
