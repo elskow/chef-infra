@@ -2,10 +2,11 @@ package auth
 
 import (
 	"context"
+	"net/mail"
+
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"net/mail"
 
 	pb "github.com/elskow/chef-infra/proto/gen/auth"
 )
@@ -60,7 +61,6 @@ func (h *Handler) Register(_ context.Context, req *pb.RegisterRequest) (*pb.Regi
 }
 
 func (h *Handler) Login(_ context.Context, req *pb.LoginRequest) (*pb.LoginResponse, error) {
-	// Validate input fields
 	if err := validateLoginRequest(req); err != nil {
 		h.log.Warn("invalid login request",
 			zap.String("error", err.Error()),
@@ -68,8 +68,8 @@ func (h *Handler) Login(_ context.Context, req *pb.LoginRequest) (*pb.LoginRespo
 		return nil, err
 	}
 
-	// Validate credentials and generate token
-	token, err := h.service.ValidateLogin(req.Username, req.Password)
+	// Validate credentials and generate tokens
+	accessToken, refreshToken, err := h.service.ValidateLoginWithRefresh(req.Username, req.Password)
 	if err != nil {
 		if err == ErrUserNotFound {
 			return nil, status.Error(codes.NotFound, "user not found")
@@ -84,9 +84,10 @@ func (h *Handler) Login(_ context.Context, req *pb.LoginRequest) (*pb.LoginRespo
 	}
 
 	return &pb.LoginResponse{
-		Success: true,
-		Token:   token,
-		Message: "Login successful",
+		Success:      true,
+		Message:      "Login successful",
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
 	}, nil
 }
 
@@ -110,6 +111,26 @@ func (h *Handler) ValidateToken(_ context.Context, req *pb.ValidateTokenRequest)
 		Valid:    true,
 		Username: claims.Username,
 		Message:  "Token is valid",
+	}, nil
+}
+
+func (h *Handler) RefreshToken(_ context.Context, req *pb.RefreshTokenRequest) (*pb.RefreshTokenResponse, error) {
+	if req.RefreshToken == "" {
+		return nil, status.Error(codes.InvalidArgument, "refresh token is required")
+	}
+
+	// Generate new token pair using refresh token
+	accessToken, refreshToken, err := h.service.RefreshTokenPair(req.RefreshToken)
+	if err != nil {
+		h.log.Error("failed to refresh token", zap.Error(err))
+		return nil, status.Error(codes.Internal, "failed to refresh token")
+	}
+
+	return &pb.RefreshTokenResponse{
+		Success:      true,
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		Message:      "Token refreshed successfully",
 	}, nil
 }
 

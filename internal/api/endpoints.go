@@ -17,4 +17,5 @@ var PublicEndpoints = map[string]bool{
 	AuthRegister:      true,
 	AuthLogin:         true,
 	AuthValidateToken: true,
+	AuthRefreshToken:  true,
 }

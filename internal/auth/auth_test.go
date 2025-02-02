@@ -18,9 +18,10 @@ func newTestLogger(t *testing.T) *zap.Logger {
 
 func newTestConfig() *config.AuthConfig {
 	return &config.AuthConfig{
-		JWTSecret:           "test-secret-key",
-		TokenExpiration:     time.Hour,
-		RefreshTokenEnabled: true,
+		JWTSecret:            "test-secret-key",
+		AccessTokenDuration:  time.Hour,
+		RefreshTokenDuration: time.Hour * 24,
+		RefreshTokenEnabled:  true,
 	}
 }
 

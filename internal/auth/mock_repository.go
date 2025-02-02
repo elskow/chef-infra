@@ -2,7 +2,6 @@ package auth
 
 import (
 	"sync"
-	"time"
 )
 
 type mockRepository struct {
@@ -22,24 +21,19 @@ func (r *mockRepository) CreateUser(user *User) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Check username
 	if _, exists := r.users[user.Username]; exists {
 		return ErrUserExists
 	}
 
-	// Check email
 	if _, exists := r.usersByEmail[user.Email]; exists {
 		return ErrUserExists
 	}
 
-	// Clone the user to prevent external modifications
 	newUser := &User{
-		ID:               uint(len(r.users) + 1), // Simple ID generation
-		Username:         user.Username,
-		PasswordHash:     user.PasswordHash,
-		Email:            user.Email,
-		FailedLoginCount: 0,
-		Locked:           false,
+		ID:           uint(len(r.users) + 1),
+		Username:     user.Username,
+		PasswordHash: user.PasswordHash,
+		Email:        user.Email,
 	}
 
 	r.users[user.Username] = newUser
@@ -67,80 +61,6 @@ func (r *mockRepository) GetUserByEmail(email string) (*User, error) {
 		return nil, ErrUserNotFound
 	}
 	return user, nil
-}
-
-func (r *mockRepository) UpdateLoginAttempts(userID uint, failed bool) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Find user by ID
-	var user *User
-	for _, u := range r.users {
-		if u.ID == userID {
-			user = u
-			break
-		}
-	}
-	if user == nil {
-		return ErrUserNotFound
-	}
-
-	now := time.Now()
-	user.LastLoginAttempt = &now
-
-	if failed {
-		user.FailedLoginCount++
-	} else {
-		user.FailedLoginCount = 0
-	}
-
-	return nil
-}
-
-func (r *mockRepository) LockAccount(userID uint, duration time.Duration) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Find user by ID
-	var user *User
-	for _, u := range r.users {
-		if u.ID == userID {
-			user = u
-			break
-		}
-	}
-	if user == nil {
-		return ErrUserNotFound
-	}
-
-	user.Locked = true
-	lockUntil := time.Now().Add(duration)
-	user.LockUntil = &lockUntil
-
-	return nil
-}
-
-func (r *mockRepository) UnlockAccount(userID uint) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Find user by ID
-	var user *User
-	for _, u := range r.users {
-		if u.ID == userID {
-			user = u
-			break
-		}
-	}
-	if user == nil {
-		return ErrUserNotFound
-	}
-
-	user.Locked = false
-	user.LockUntil = nil
-	user.FailedLoginCount = 0
-
-	return nil
 }
 
 func (r *mockRepository) VerifyEmail(userID uint) error {

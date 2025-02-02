@@ -1,23 +1,22 @@
 package auth
 
 import (
-	"github.com/elskow/chef-infra/internal/config"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+
+	"github.com/elskow/chef-infra/internal/config"
 )
 
 // NewModule returns the auth module options
-func NewModule() fx.Option {
+func NewModule(db *gorm.DB) fx.Option {
 	return fx.Options(
 		fx.Provide(
-			// Provide repository
 			fx.Annotate(
-				func(db *gorm.DB) Repository {
+				func() Repository {
 					return NewRepository(db)
 				},
 			),
-			// Provide service
 			fx.Annotate(
 				func(config *config.AppConfig, log *zap.Logger, repo Repository) *Service {
 					return NewService(&config.Auth, log, repo)

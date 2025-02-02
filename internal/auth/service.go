@@ -2,12 +2,14 @@ package auth
 
 import (
 	"errors"
-	"github.com/elskow/chef-infra/internal/config"
-	"go.uber.org/zap"
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/elskow/chef-infra/internal/config"
 )
 
 type Service struct {
@@ -40,12 +42,13 @@ func (s *Service) CheckPasswordHash(password, hash string) bool {
 }
 
 func (s *Service) GenerateToken(username string) (string, error) {
-	expirationTime := time.Now().Add(s.config.TokenExpiration)
+	expirationTime := time.Now().Add(s.config.AccessTokenDuration)
 	claims := &Claims{
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expirationTime),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Subject:   "access",
 		},
 	}
 
@@ -68,6 +71,31 @@ func (s *Service) ValidateToken(tokenString string) (*Claims, error) {
 	}
 
 	return claims, nil
+}
+
+func (s *Service) validateTokenType(claims *Claims, expectedType string) error {
+	if claims.Subject != expectedType {
+		return fmt.Errorf("invalid token type: expected %s, got %s", expectedType, claims.Subject)
+	}
+	return nil
+}
+
+func (s *Service) ValidateLoginWithRefresh(username, password string) (accessToken, refreshToken string, err error) {
+	user, err := s.repository.GetUserByUsername(username)
+	if err != nil {
+		if err == ErrUserNotFound {
+			s.HashPassword("dummy") // Prevent timing attacks
+			return "", "", ErrUserNotFound
+		}
+		return "", "", err
+	}
+
+	if !s.CheckPasswordHash(password, user.PasswordHash) {
+		return "", "", ErrInvalidPassword
+	}
+
+	// Generate token pair
+	return s.GenerateTokenPair(user.Username)
 }
 
 func (s *Service) RegisterUser(username, password, email string) error {
@@ -95,37 +123,8 @@ func (s *Service) ValidateLogin(username, password string) (string, error) {
 		return "", err
 	}
 
-	// Check if account is locked
-	if user.Locked {
-		if user.LockUntil != nil && time.Now().After(*user.LockUntil) {
-			// Unlock account if lock duration has passed
-			if err := s.repository.UnlockAccount(user.ID); err != nil {
-				return "", err
-			}
-		} else {
-			return "", errors.New("account is locked")
-		}
-	}
-
 	if !s.CheckPasswordHash(password, user.PasswordHash) {
-		// Increment failed login attempts
-		if err := s.repository.UpdateLoginAttempts(user.ID, true); err != nil {
-			s.log.Error("failed to update login attempts", zap.Error(err))
-		}
-
-		// Lock account after too many failed attempts
-		if user.FailedLoginCount >= 5 {
-			if err := s.repository.LockAccount(user.ID, time.Minute*15); err != nil {
-				s.log.Error("failed to lock account", zap.Error(err))
-			}
-		}
-
 		return "", ErrInvalidPassword
-	}
-
-	// Reset failed login attempts on successful login
-	if err := s.repository.UpdateLoginAttempts(user.ID, false); err != nil {
-		s.log.Error("failed to reset login attempts", zap.Error(err))
 	}
 
 	token, err := s.GenerateToken(user.Username)
@@ -155,8 +154,7 @@ func (s *Service) generateRefreshToken(username string) (string, error) {
 		return "", errors.New("refresh token functionality is disabled")
 	}
 
-	// Refresh tokens have a longer expiration time
-	expirationTime := time.Now().Add(s.config.TokenExpiration * 24) // 24x longer than access token
+	expirationTime := time.Now().Add(s.config.RefreshTokenDuration) // Use RefreshTokenDuration
 	claims := &Claims{
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -171,11 +169,33 @@ func (s *Service) generateRefreshToken(username string) (string, error) {
 }
 
 func (s *Service) RefreshToken(refreshToken string) (string, error) {
-	// Validate refresh token and generate new access token
+	// Validate refresh token
 	claims, err := s.ValidateToken(refreshToken)
 	if err != nil {
 		return "", err
 	}
 
+	// Ensure it's a refresh token
+	if err := s.validateTokenType(claims, "refresh"); err != nil {
+		return "", err
+	}
+
+	// Generate new access token
 	return s.GenerateToken(claims.Username)
+}
+
+func (s *Service) RefreshTokenPair(refreshToken string) (accessToken, newRefreshToken string, err error) {
+	// Validate refresh token
+	claims, err := s.ValidateToken(refreshToken)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Ensure it's a refresh token
+	if err := s.validateTokenType(claims, "refresh"); err != nil {
+		return "", "", err
+	}
+
+	// Generate new token pair
+	return s.GenerateTokenPair(claims.Username)
 }

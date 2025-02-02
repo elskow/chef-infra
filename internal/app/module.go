@@ -6,14 +6,14 @@ import (
 
 	"go.uber.org/fx"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 
 	"github.com/elskow/chef-infra/internal/auth"
 	"github.com/elskow/chef-infra/internal/config"
+	"github.com/elskow/chef-infra/internal/database"
+	"github.com/elskow/chef-infra/internal/migration"
 	"github.com/elskow/chef-infra/internal/server"
 )
 
-// Module combines all application modules
 func Module() fx.Option {
 	return fx.Options(
 		// Logger
@@ -23,14 +23,32 @@ func Module() fx.Option {
 		fx.Provide(server.LoadConfig),
 
 		// Database
-		fx.Provide(
-			func(config *config.AppConfig) (*gorm.DB, error) {
-				return server.NewDatabase(&config.Database)
-			},
-		),
+		database.Module(),
+
+		// Migration (after database is set up)
+		migration.Module(),
 
 		// Auth Module
-		auth.NewModule(),
+		fx.Provide(
+			// Provide AuthMiddleware
+			fx.Annotate(
+				func(config *config.AppConfig) *auth.AuthMiddleware {
+					return auth.NewAuthMiddleware(&config.Auth)
+				},
+			),
+			// Provide AuthService
+			fx.Annotate(
+				func(config *config.AppConfig, log *zap.Logger, dbm *database.Manager) *auth.Service {
+					return auth.NewService(&config.Auth, log, auth.NewRepository(dbm.DB()))
+				},
+			),
+			// Provide AuthHandler
+			fx.Annotate(
+				func(svc *auth.Service, log *zap.Logger) *auth.Handler {
+					return auth.NewHandler(svc, log)
+				},
+			),
+		),
 
 		// Server
 		fx.Provide(server.NewServer),

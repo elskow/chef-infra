@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"errors"
 	"testing"
 	"time"
 
@@ -111,7 +110,7 @@ func TestService_ValidateToken(t *testing.T) {
 			setupToken: func() string {
 				// Create service with expired token
 				expiredConfig := newTestConfig()
-				expiredConfig.TokenExpiration = -time.Hour
+				expiredConfig.AccessTokenDuration = -time.Hour
 				expiredSvc := NewService(
 					expiredConfig,
 					newTestLogger(t),
@@ -210,114 +209,6 @@ func TestService_RegisterUser(t *testing.T) {
 	}
 }
 
-func TestService_ValidateLogin_AccountLocking(t *testing.T) {
-	svc := newTestService(t)
-	username := "testuser"
-	password := "testpass123"
-	email := "test@example.com"
-
-	// Register test user
-	err := svc.RegisterUser(username, password, email)
-	require.NoError(t, err)
-
-	tests := []struct {
-		name          string
-		attempts      int
-		waitDuration  time.Duration
-		finalPassword string
-		wantErr       error
-	}{
-		{
-			name:          "successful login",
-			attempts:      0,
-			finalPassword: password,
-			wantErr:       nil,
-		},
-		{
-			name:          "account locks after 5 failed attempts",
-			attempts:      5,
-			finalPassword: password,
-			wantErr:       errors.New("account is locked"),
-		},
-		{
-			name:          "wrong password fails",
-			attempts:      1,
-			finalPassword: "wrongpass",
-			wantErr:       ErrInvalidPassword,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Reset the service for each test
-			svc = newTestService(t)
-			err := svc.RegisterUser(username, password, email)
-			require.NoError(t, err)
-
-			// Simulate failed login attempts
-			for i := 0; i < tt.attempts; i++ {
-				_, err := svc.ValidateLogin(username, "wrongpass")
-				require.Error(t, err)
-				assert.ErrorIs(t, err, ErrInvalidPassword)
-			}
-
-			if tt.waitDuration > 0 {
-				time.Sleep(tt.waitDuration)
-			}
-
-			// Try final login
-			token, err := svc.ValidateLogin(username, tt.finalPassword)
-			if tt.wantErr != nil {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.wantErr.Error())
-				return
-			}
-
-			require.NoError(t, err)
-			assert.NotEmpty(t, token)
-		})
-	}
-}
-
-func TestService_ValidateLogin_AccountUnlocking(t *testing.T) {
-	svc := newTestService(t)
-	username := "testuser"
-	password := "testpass123"
-	email := "test@example.com"
-
-	// Register test user
-	err := svc.RegisterUser(username, password, email)
-	require.NoError(t, err)
-
-	// Lock account with failed attempts
-	for i := 0; i < 5; i++ {
-		_, err := svc.ValidateLogin(username, "wrongpass")
-		require.Error(t, err)
-	}
-
-	// Verify account is locked
-	_, err = svc.ValidateLogin(username, password)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "account is locked")
-
-	// Get user and manually set lock time to the past
-	user, err := svc.repository.GetUserByUsername(username)
-	require.NoError(t, err)
-	pastTime := time.Now().Add(-time.Hour)
-	user.LockUntil = &pastTime
-
-	// Try login again - should succeed now
-	token, err := svc.ValidateLogin(username, password)
-	require.NoError(t, err)
-	assert.NotEmpty(t, token)
-
-	// Verify account is unlocked
-	user, err = svc.repository.GetUserByUsername(username)
-	require.NoError(t, err)
-	assert.False(t, user.Locked)
-	assert.Zero(t, user.FailedLoginCount)
-}
-
 func TestService_GenerateTokenPair(t *testing.T) {
 	svc := newTestService(t)
 	username := "testuser"
@@ -400,7 +291,7 @@ func TestService_RefreshToken(t *testing.T) {
 			name: "expired refresh token",
 			setupToken: func() string {
 				cfg := newTestConfig()
-				cfg.TokenExpiration = -time.Hour
+				cfg.RefreshTokenDuration = -time.Hour
 				expiredSvc := NewService(cfg, newTestLogger(t), newMockRepository())
 				_, refresh, _ := expiredSvc.GenerateTokenPair(username)
 				return refresh

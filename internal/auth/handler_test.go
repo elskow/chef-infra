@@ -227,7 +227,8 @@ func TestHandler_Login(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.True(t, resp.Success)
-			assert.NotEmpty(t, resp.Token)
+			assert.NotEmpty(t, resp.AccessToken)
+			assert.NotEmpty(t, resp.RefreshToken)
 			assert.NotEmpty(t, resp.Message)
 		})
 	}
@@ -251,7 +252,7 @@ func TestHandler_ValidateToken(t *testing.T) {
 		Password: "testpass123",
 	})
 	require.NoError(t, err)
-	validToken := loginResp.Token
+	validToken := loginResp.AccessToken
 
 	tests := []struct {
 		name      string
