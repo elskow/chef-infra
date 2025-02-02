@@ -1,14 +1,14 @@
 .PHONY: run
 run:
-	APP_ENV=development go run cmd/main.go
+	APP_ENV=development go run cmd/chef-infra/main.go
 
 .PHONY: run-prod
 run-prod:
-	APP_ENV=production go run cmd/main.go
+	APP_ENV=production go run cmd/chef-infra/main.go
 
 .PHONY: run-test
 run-test:
-	APP_ENV=testing go run cmd/main.go
+	APP_ENV=testing go run cmd/chef-infra/main.go
 
 .PHONY: dev
 dev:
@@ -36,7 +36,7 @@ docker-clean:
 
 .PHONY: build
 build:
-	go build -o bin/app cmd/main.go
+	go build -o bin/app cmd/chef-infra/main.go
 	@mkdir -p bin/config
 	@cp config/config.toml bin/config/
 
@@ -68,3 +68,16 @@ setup:
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 	go install github.com/air-verse/air@latest
+
+
+.PHONY: test test-verbose test-coverage
+
+test:
+	go test ./...
+
+test-verbose:
+	go test -v ./...
+
+test-coverage:
+	go test -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out

@@ -4,9 +4,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/elskow/chef-infra/internal/config"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
+
+	"github.com/elskow/chef-infra/internal/config"
 )
 
 func newTestLogger(t *testing.T) *zap.Logger {
@@ -24,5 +25,21 @@ func newTestConfig() *config.AuthConfig {
 }
 
 func newTestService(t *testing.T) *Service {
-	return NewService(newTestConfig(), newTestLogger(t))
+	return NewService(
+		newTestConfig(),
+		newTestLogger(t),
+		newMockRepository(),
+	)
+}
+
+func newTestHandler(t *testing.T) *Handler {
+	return NewHandler(newTestService(t), newTestLogger(t))
+}
+
+func newTestServiceWithRepo(t *testing.T, repo Repository) *Service {
+	return NewService(
+		newTestConfig(),
+		newTestLogger(t),
+		repo,
+	)
 }
