@@ -8,22 +8,32 @@ RUN apk add --no-cache \
     make \
     protoc \
     protobuf-dev \
-    netcat-openbsd
+    netcat-openbsd \
+    postgresql-client \
+    postgresql-dev \
+    gcc \
+    musl-dev \
+    bash
 
 # Install Air for hot reload
 RUN go install github.com/air-verse/air@latest
 
-# Copy go mod files
-COPY go.mod go.sum ./
+# Create necessary directories
+RUN mkdir -p /app/tmp /app/scripts /app/migrations
+
+# Copy files
+COPY . .
+
+# Set proper permissions
+RUN chmod 755 /app/scripts/wait-for-db.sh && \
+    chmod 755 /app/scripts/dev-entrypoint.sh && \
+    chmod -R 777 /app/tmp
 
 # Download dependencies
 RUN go mod download
 
-# Copy the rest of the application
-COPY . .
-
 # Expose gRPC port
 EXPOSE 50051
 
-# Run with Air
-CMD ["air"]
+# Set entrypoint
+ENTRYPOINT ["/bin/sh", "/app/scripts/dev-entrypoint.sh"]

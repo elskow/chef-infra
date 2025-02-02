@@ -1,0 +1,59 @@
+FROM golang:1.23-alpine AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apk add --no-cache \
+    git \
+    make \
+    protoc \
+    protobuf-dev
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy the rest of the application
+COPY . .
+
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/bin/chef-infra cmd/chef-infra/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/bin/migrate cmd/migrate/main.go
+
+# Final stage
+FROM alpine:3.19
+
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    postgresql-client \
+    bash \
+    ca-certificates
+
+# Copy binaries from builder
+COPY --from=builder /app/bin/chef-infra /app/bin/
+COPY --from=builder /app/bin/migrate /app/bin/
+
+# Copy configuration and migrations
+COPY config /app/config
+COPY migrations /app/migrations
+
+# Copy scripts
+COPY scripts/wait-for-db.sh scripts/prod-entrypoint.sh /app/scripts/
+RUN chmod +x /app/scripts/wait-for-db.sh /app/scripts/prod-entrypoint.sh
+
+# Create necessary directories
+RUN mkdir -p /app/logs
+
+# Expose gRPC port
+EXPOSE 50051
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD nc -z localhost 50051 || exit 1
+
+# Set entrypoint
+ENTRYPOINT ["/app/scripts/prod-entrypoint.sh"]

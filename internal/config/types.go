@@ -14,9 +14,10 @@ type GRPCConfig struct {
 }
 
 type AuthConfig struct {
-	JWTSecret           string        `mapstructure:"jwt_secret"`
-	TokenExpiration     time.Duration `mapstructure:"token_expiration"`
-	RefreshTokenEnabled bool          `mapstructure:"refresh_token_enabled"`
+	JWTSecret            string        `mapstructure:"jwt_secret"`
+	AccessTokenDuration  time.Duration `mapstructure:"access_token_duration"`
+	RefreshTokenDuration time.Duration `mapstructure:"refresh_token_duration"`
+	RefreshTokenEnabled  bool          `mapstructure:"refresh_token_enabled"`
 }
 
 type DatabaseConfig struct {

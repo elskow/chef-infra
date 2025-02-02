@@ -3,27 +3,27 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.dev
-    volumes:
-      - .:/app
-      - go-mod-cache:/go/pkg/mod
-    ports:
-      - "50051:50051"
     environment:
       - APP_ENV=development
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
+      - DB_HOST=postgres
+      - DB_PORT=5432
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=chef_infra
+    ports:
+      - "50051:50051"
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - .:/app
+      - go-modules:/go/pkg/mod
+      - tmp-data:/app/tmp
     networks:
       - chef-network
-    command: sh -c "while ! nc -z postgres 5432; do sleep 1; done; air"
 
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
@@ -42,7 +42,8 @@ services:
 
 volumes:
   postgres-data:
-  go-mod-cache:
+  go-modules:
+  tmp-data:
 
 networks:
   chef-network:

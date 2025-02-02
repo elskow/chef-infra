@@ -4,7 +4,8 @@ port = "50051"
 
 [auth]
 jwt_secret = "s0m3s3cr3tk3y"
-token_expiration = "24h"
+access_token_duration = "15m"    # Short-lived access token
+refresh_token_duration = "72h"   # 3 days refresh token
 refresh_token_enabled = true
 
 [database]

@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/elskow/chef-infra/internal/config"
 	"github.com/spf13/viper"
+
+	"github.com/elskow/chef-infra/internal/config"
 )
 
 const (
@@ -23,7 +24,7 @@ func LoadConfig() (*config.AppConfig, error) {
 	v := viper.New()
 	v.SetConfigName("config")
 	v.SetConfigType("toml")
-	v.AddConfigPath("./config/server")
+	v.AddConfigPath("./config/chef-infra")
 
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("error reading config file: %w", err)

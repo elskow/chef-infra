@@ -69,3 +69,4 @@ config.dev.yaml
 
 # Cache directories
 .cache/
+!migrations/

@@ -5,39 +5,52 @@ package auth;
 option go_package = "github.com/elskow/chef-infra/proto/gen/auth";
 
 service Auth {
-  rpc Register(RegisterRequest) returns (RegisterResponse) {}
-  rpc Login(LoginRequest) returns (LoginResponse) {}
-  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse) {}
+    rpc Register(RegisterRequest) returns (RegisterResponse) {}
+    rpc Login(LoginRequest) returns (LoginResponse) {}
+    rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse) {}
+    rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse) {}
 }
 
 message RegisterRequest {
-  string username = 1;
-  string password = 2;
-  string email = 3;
+    string username = 1;
+    string password = 2;
+    string email = 3;
 }
 
 message RegisterResponse {
-  bool success = 1;
-  string message = 2;
+    bool success = 1;
+    string message = 2;
 }
 
 message LoginRequest {
-  string username = 1;
-  string password = 2;
+    string username = 1;
+    string password = 2;
 }
 
 message LoginResponse {
-  bool success = 1;
-  string token = 2;
-  string message = 3;
+    bool success = 1;
+    string access_token = 2;
+    string refresh_token = 3;
+    string message = 4;
 }
 
 message ValidateTokenRequest {
-  string token = 1;
+    string token = 1;
 }
 
 message ValidateTokenResponse {
-  bool valid = 1;
-  string username = 2;
-  string message = 3;
+    bool valid = 1;
+    string username = 2;
+    string message = 3;
+}
+
+message RefreshTokenRequest {
+    string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+    bool success = 1;
+    string access_token = 2;
+    string refresh_token = 3;
+    string message = 4;
 }
