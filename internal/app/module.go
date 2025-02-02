@@ -2,11 +2,14 @@ package app
 
 import (
 	"context"
-	"go.uber.org/fx"
-	"go.uber.org/zap"
 	"os"
 
+	"go.uber.org/fx"
+	"go.uber.org/zap"
+	"gorm.io/gorm"
+
 	"github.com/elskow/chef-infra/internal/auth"
+	"github.com/elskow/chef-infra/internal/config"
 	"github.com/elskow/chef-infra/internal/server"
 )
 
@@ -18,6 +21,13 @@ func Module() fx.Option {
 
 		// Configuration
 		fx.Provide(server.LoadConfig),
+
+		// Database
+		fx.Provide(
+			func(config *config.AppConfig) (*gorm.DB, error) {
+				return server.NewDatabase(&config.Database)
+			},
+		),
 
 		// Auth Module
 		auth.NewModule(),

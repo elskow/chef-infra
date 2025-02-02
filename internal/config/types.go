@@ -19,8 +19,18 @@ type AuthConfig struct {
 	RefreshTokenEnabled bool          `mapstructure:"refresh_token_enabled"`
 }
 
+type DatabaseConfig struct {
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	User     string `mapstructure:"user"`
+	Password string `mapstructure:"password"`
+	Name     string `mapstructure:"name"`
+	SSLMode  string `mapstructure:"ssl_mode"`
+}
+
 type AppConfig struct {
-	Server ServerConfig `mapstructure:"server"`
-	GRPC   GRPCConfig   `mapstructure:"grpc"`
-	Auth   AuthConfig   `mapstructure:"auth"`
+	Server   ServerConfig   `mapstructure:"server"`
+	GRPC     GRPCConfig     `mapstructure:"grpc"`
+	Auth     AuthConfig     `mapstructure:"auth"`
+	Database DatabaseConfig `mapstructure:"database"`
 }
