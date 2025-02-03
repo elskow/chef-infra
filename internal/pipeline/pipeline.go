@@ -7,13 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"go.uber.org/zap"
-
 	"github.com/elskow/chef-infra/internal/pipeline/builder"
 	"github.com/elskow/chef-infra/internal/pipeline/config"
 	"github.com/elskow/chef-infra/internal/pipeline/deployer"
 	"github.com/elskow/chef-infra/internal/pipeline/types"
 	"github.com/elskow/chef-infra/internal/pipeline/validator"
+	"go.uber.org/zap"
 )
 
 type Pipeline struct {
@@ -72,13 +71,12 @@ func (p *Pipeline) executeBuild(ctx context.Context, build *types.Build) error {
 	// Set initial status
 	build.Status = types.BuildStatusBuilding
 
-	// Create context that can be cancelled
 	buildCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	// Store cancel function for possible cancellation
 	p.mu.Lock()
-	build.CancelFunc = cancel // Updated to use public field name
+	build.CancelFunc = cancel
 	p.mu.Unlock()
 
 	// Create build context with cleanup
@@ -105,17 +103,12 @@ func (p *Pipeline) executeBuild(ctx context.Context, build *types.Build) error {
 		return fmt.Errorf("failed to create cache directory: %w", err)
 	}
 
-	// Execute build steps with timeouts
-	buildTimeout := time.Duration(p.config.DefaultTimeout) * time.Second
-	_, timeoutCancel := context.WithTimeout(buildCtx, buildTimeout)
-	defer timeoutCancel()
-
-	// Create builder
+	// Create builder without timeout
 	builder, err := p.builderFactory.CreateBuilder(build.Framework, &builder.Options{
 		WorkDir:     buildContext.BuildDir,
 		CacheDir:    buildContext.CacheDir,
 		Environment: p.config.NodeJS.EnvVars,
-		Timeout:     p.config.DefaultTimeout,
+		Timeout:     0, // No timeout
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create builder: %w", err)
@@ -128,8 +121,8 @@ func (p *Pipeline) executeBuild(ctx context.Context, build *types.Build) error {
 		}
 	}()
 
-	// Run build
-	buildResult, err := builder.Build(ctx, build)
+	// Run build with the cancellable context but no timeout
+	buildResult, err := builder.Build(buildCtx, build)
 	if err != nil {
 		return fmt.Errorf("build failed: %w", err)
 	}

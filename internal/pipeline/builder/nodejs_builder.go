@@ -2,19 +2,20 @@ package builder
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/archive"
-	"go.uber.org/zap"
-
 	"github.com/elskow/chef-infra/internal/pipeline/config"
 	pipelinetypes "github.com/elskow/chef-infra/internal/pipeline/types"
+	"go.uber.org/zap"
 )
 
 type NodeJSBuilder struct {
@@ -46,19 +47,28 @@ func (b *NodeJSBuilder) Build(ctx context.Context, build *pipelinetypes.Build) (
 	// Create build directory and prepare files
 	buildDir := filepath.Join(b.options.WorkDir, build.ID)
 	if err := b.prepareBuildDirectory(buildDir, build); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to prepare build directory: %w", err)
 	}
 
 	// Create Dockerfile
 	if err := b.createDockerfile(buildDir, build); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create dockerfile: %w", err)
 	}
 
-	// Build Docker image
+	imageTag := fmt.Sprintf("chef-%s:%s", build.ProjectID, build.ID)
+	if build.CommitHash != "" {
+		imageTag = fmt.Sprintf("chef-%s:%s", build.ProjectID, build.CommitHash)
+	}
+
+	// Build Docker image with proper error handling
 	buildOpts := dockertypes.ImageBuildOptions{
 		Dockerfile: "Dockerfile",
-		Tags:       []string{fmt.Sprintf("%s:%s", build.ProjectID, build.CommitHash)},
+		Tags:       []string{imageTag},
 		Remove:     true,
+		// Add build args if needed
+		BuildArgs: map[string]*string{
+			"NODE_ENV": &[]string{"production"}[0],
+		},
 	}
 
 	buildContext := b.createBuildContext(buildDir)
@@ -72,15 +82,20 @@ func (b *NodeJSBuilder) Build(ctx context.Context, build *pipelinetypes.Build) (
 	}
 	defer resp.Body.Close()
 
+	// Process build output
+	if err := b.processBuildOutput(resp.Body); err != nil {
+		return nil, err
+	}
+
 	// Create artifact from build output
 	if err := b.createArtifactFromContainer(ctx, build); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create artifact: %w", err)
 	}
 
 	return &pipelinetypes.BuildResult{
 		Success:      true,
 		ArtifactPath: filepath.Join(b.options.WorkDir, "artifacts", fmt.Sprintf("%s.tar.gz", build.ID)),
-		ImageID:      fmt.Sprintf("%s:%s", build.ProjectID, build.CommitHash),
+		ImageID:      imageTag,
 	}, nil
 }
 
@@ -120,10 +135,21 @@ FROM node:%s-alpine
 
 WORKDIR /app
 
+# Add build dependencies
+RUN apk add --no-cache python3 make g++
+
+# Copy package files
 COPY package*.json ./
 RUN npm install
 
+# Copy source files
 COPY . .
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV CI=true
+
+# Build the application
 RUN npm run %s
 
 FROM nginx:alpine
@@ -140,6 +166,39 @@ func (b *NodeJSBuilder) createBuildContext(buildDir string) io.Reader {
 		return nil
 	}
 	return tar
+}
+
+func (b *NodeJSBuilder) processBuildOutput(reader io.Reader) error {
+	decoder := json.NewDecoder(reader)
+	for {
+		var message struct {
+			Stream string `json:"stream"`
+			Error  string `json:"error"`
+			Status string `json:"status"`
+			ID     string `json:"id"`
+		}
+
+		if err := decoder.Decode(&message); err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+
+		if message.Error != "" {
+			return fmt.Errorf("docker build error: %s", message.Error)
+		}
+
+		// Log all types of Docker messages
+		if message.Stream != "" {
+			b.logger.Debug("docker build output", zap.String("output", strings.TrimSpace(message.Stream)))
+		}
+		if message.Status != "" {
+			b.logger.Debug("docker status",
+				zap.String("status", message.Status),
+				zap.String("id", message.ID))
+		}
+	}
 }
 
 func (b *NodeJSBuilder) prepareBuildDirectory(buildDir string, build *pipelinetypes.Build) error {
@@ -201,19 +260,35 @@ func (b *NodeJSBuilder) copyFile(src, dst string) error {
 }
 
 func (b *NodeJSBuilder) createArtifactFromContainer(ctx context.Context, build *pipelinetypes.Build) error {
-	// Create a temporary container from the built image
+	imageTag := fmt.Sprintf("chef-%s:%s", build.ProjectID, build.ID)
+	if build.CommitHash != "" {
+		imageTag = fmt.Sprintf("chef-%s:%s", build.ProjectID, build.CommitHash)
+	}
+
+	// Verify image exists before creating container
+	_, _, err := b.dockerCli.ImageInspectWithRaw(ctx, imageTag)
+	if err != nil {
+		return fmt.Errorf("image not found: %s: %w", imageTag, err)
+	}
+
 	containerConfig := &container.Config{
-		Image: fmt.Sprintf("%s:%s", build.ProjectID, build.CommitHash),
+		Image: imageTag,
 	}
 
 	containerID, err := b.createContainer(ctx, containerConfig)
 	if err != nil {
 		return err
 	}
-	defer b.dockerCli.ContainerRemove(ctx, containerID, container.RemoveOptions{
-		RemoveVolumes: true,
-		Force:         true,
-	})
+	defer func() {
+		err := b.dockerCli.ContainerRemove(ctx, containerID, container.RemoveOptions{
+			RemoveVolumes: true,
+			Force:         true,
+		})
+
+		if err != nil {
+			b.logger.Warn("failed to remove container", zap.String("container", containerID), zap.Error(err))
+		}
+	}()
 
 	// Copy the built files from the container
 	artifactDir := filepath.Join(b.options.WorkDir, "artifacts")
@@ -239,11 +314,20 @@ func (b *NodeJSBuilder) createArtifactFromContainer(ctx context.Context, build *
 }
 
 func (b *NodeJSBuilder) createContainer(ctx context.Context, config *container.Config) (string, error) {
+	config.Image = b.getImageTag(config.Image)
 	resp, err := b.dockerCli.ContainerCreate(ctx, config, nil, nil, nil, "")
 	if err != nil {
 		return "", err
 	}
 	return resp.ID, nil
+}
+
+func (b *NodeJSBuilder) getImageTag(imageID string) string {
+	// Strip any existing prefix if present
+	if len(imageID) > 5 && imageID[:5] == "chef-" {
+		return imageID
+	}
+	return fmt.Sprintf("chef-%s", imageID)
 }
 
 func (b *NodeJSBuilder) Cleanup() error {

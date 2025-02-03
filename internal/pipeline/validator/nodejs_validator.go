@@ -69,7 +69,12 @@ func (v *NodeJSValidator) ValidateArtifact(artifactPath string) error {
 }
 
 func (v *NodeJSValidator) readPackageJSON(build *types.Build) (*PackageJSON, error) {
-	pkgPath := filepath.Join(build.BuilderConfig["workDir"].(string), "package.json")
+	sourceDir, ok := build.BuilderConfig["sourceDir"].(string)
+	if !ok {
+		return nil, fmt.Errorf("sourceDir not found in builder config")
+	}
+
+	pkgPath := filepath.Join(sourceDir, "package.json")
 	data, err := os.ReadFile(pkgPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read package.json: %w", err)
