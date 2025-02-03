@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 
+	"github.com/elskow/chef-infra/internal/pipeline/config"
+	"github.com/elskow/chef-infra/internal/pipeline/types"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -15,15 +19,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
-
-	"github.com/elskow/chef-infra/internal/pipeline/config"
-	"github.com/elskow/chef-infra/internal/pipeline/types"
 )
 
 type K8sDeployer struct {
 	config    *config.DeployConfig
 	logger    *zap.Logger
-	clientset *kubernetes.Clientset
+	k8sClient K8sClient
 }
 
 func NewK8sDeployer(config *config.DeployConfig, logger *zap.Logger) (*K8sDeployer, error) {
@@ -41,7 +42,7 @@ func NewK8sDeployer(config *config.DeployConfig, logger *zap.Logger) (*K8sDeploy
 	return &K8sDeployer{
 		config:    config,
 		logger:    logger,
-		clientset: clientset,
+		k8sClient: NewRealK8sClient(clientset),
 	}, nil
 }
 
@@ -85,9 +86,10 @@ func (d *K8sDeployer) Deploy(ctx context.Context, build *types.Build) error {
 	}
 
 	// Apply deployment
-	if _, err := d.clientset.AppsV1().Deployments(d.config.Namespace).Create(ctx, deployment, metav1.CreateOptions{}); err != nil {
+	_, err := d.k8sClient.CreateDeployment(ctx, d.config.Namespace, deployment)
+	if err != nil {
 		if k8serrors.IsAlreadyExists(err) {
-			_, err = d.clientset.AppsV1().Deployments(d.config.Namespace).Update(ctx, deployment, metav1.UpdateOptions{})
+			_, err = d.k8sClient.UpdateDeployment(ctx, d.config.Namespace, deployment)
 			if err != nil {
 				return fmt.Errorf("failed to update deployment: %w", err)
 			}
@@ -117,8 +119,14 @@ func (d *K8sDeployer) Deploy(ctx context.Context, build *types.Build) error {
 	}
 
 	// Apply service
-	if _, err := d.clientset.CoreV1().Services(d.config.Namespace).Create(ctx, service, metav1.CreateOptions{}); err != nil {
-		if !k8serrors.IsAlreadyExists(err) {
+	_, err = d.k8sClient.CreateService(ctx, d.config.Namespace, service)
+	if err != nil {
+		if k8serrors.IsAlreadyExists(err) {
+			_, err = d.k8sClient.UpdateService(ctx, d.config.Namespace, service)
+			if err != nil {
+				return fmt.Errorf("failed to update service: %w", err)
+			}
+		} else {
 			return fmt.Errorf("failed to create service: %w", err)
 		}
 	}
@@ -160,8 +168,14 @@ func (d *K8sDeployer) Deploy(ctx context.Context, build *types.Build) error {
 	}
 
 	// Apply ingress
-	if _, err := d.clientset.NetworkingV1().Ingresses(d.config.Namespace).Create(ctx, ingress, metav1.CreateOptions{}); err != nil {
-		if !k8serrors.IsAlreadyExists(err) {
+	_, err = d.k8sClient.CreateIngress(ctx, d.config.Namespace, ingress)
+	if err != nil {
+		if k8serrors.IsAlreadyExists(err) {
+			_, err = d.k8sClient.UpdateIngress(ctx, d.config.Namespace, ingress)
+			if err != nil {
+				return fmt.Errorf("failed to update ingress: %w", err)
+			}
+		} else {
 			return fmt.Errorf("failed to create ingress: %w", err)
 		}
 	}
@@ -169,14 +183,71 @@ func (d *K8sDeployer) Deploy(ctx context.Context, build *types.Build) error {
 	return nil
 }
 
-func (d *K8sDeployer) Rollback(_ context.Context, _ *types.Build) error {
-	// TODO: Implement rollback logic using Kubernetes deployments rollback feature
+func (d *K8sDeployer) Rollback(ctx context.Context, build *types.Build) error {
+	d.logger.Info("rolling back deployment",
+		zap.String("project", build.ProjectID))
+
+	// Get the deployment
+	deployment, err := d.k8sClient.GetDeployment(ctx, d.config.Namespace, build.ProjectID)
+	if err != nil {
+		return fmt.Errorf("failed to get deployment: %w", err)
+	}
+
+	// Initialize annotations map if nil
+	if deployment.Annotations == nil {
+		deployment.Annotations = make(map[string]string)
+	}
+
+	// Get deployment history
+	revisions, err := d.k8sClient.ListReplicaSets(ctx, d.config.Namespace, metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("app=%s", build.ProjectID),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get deployment history: %w", err)
+	}
+
+	if len(revisions.Items) <= 1 {
+		return fmt.Errorf("no previous revision available for rollback")
+	}
+
+	// Sort ReplicaSets by revision number
+	sort.Slice(revisions.Items, func(i, j int) bool {
+		iRev, _ := strconv.Atoi(revisions.Items[i].Annotations["deployment.kubernetes.io/revision"])
+		jRev, _ := strconv.Atoi(revisions.Items[j].Annotations["deployment.kubernetes.io/revision"])
+		return iRev > jRev
+	})
+
+	// Get the previous revision (second most recent)
+	previousRevision := &revisions.Items[1]
+
+	// Update deployment with previous container specs
+	deployment.Spec.Template.Spec.Containers = previousRevision.Spec.Template.Spec.Containers
+	deployment.Annotations["kubernetes.io/change-cause"] = "Rollback triggered by Chef"
+
+	// Apply the rollback
+	_, err = d.k8sClient.UpdateDeployment(ctx, d.config.Namespace, deployment)
+	if err != nil {
+		return fmt.Errorf("failed to rollback deployment: %w", err)
+	}
+
 	return nil
 }
 
 func (d *K8sDeployer) Validate(build *types.Build) error {
+	if build.ProjectID == "" {
+		return fmt.Errorf("project ID is required for kubernetes deployment")
+	}
 	if build.ImageID == "" {
 		return fmt.Errorf("image ID is required for kubernetes deployment")
+	}
+	if d.config.Namespace == "" {
+		return fmt.Errorf("kubernetes namespace is not configured")
+	}
+	if d.config.IngressDomain == "" {
+		return fmt.Errorf("ingress domain is not configured")
+	}
+	if d.config.ReplicaCount < 1 {
+		return fmt.Errorf("replica count must be at least 1")
 	}
 	return nil
 }

@@ -7,10 +7,9 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"go.uber.org/zap"
-
 	"github.com/elskow/chef-infra/internal/pipeline/config"
 	"github.com/elskow/chef-infra/internal/pipeline/types"
+	"go.uber.org/zap"
 )
 
 const (
